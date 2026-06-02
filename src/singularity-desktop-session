@@ -1,0 +1,52 @@
+#!/bin/bash
+SELF="$(readlink -f "$0")"
+BIN="$(dirname "$SELF")"
+PREFIX="$(dirname "$BIN")"
+LIB="$PREFIX/lib"
+SHARE="$PREFIX/share"
+
+export LD_LIBRARY_PATH="$LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PATH="$BIN:$PATH"
+export GDK_BACKEND=wayland
+export GSK_RENDERER=gl
+export XDG_CURRENT_DESKTOP=Singularity
+export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:$SHARE:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export GSETTINGS_SCHEMA_DIR="$SHARE/glib-2.0/schemas"
+export GI_TYPELIB_PATH="$LIB/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+
+dbus-update-activation-environment --systemd \
+    DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP \
+    XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS GDK_BACKEND GSK_RENDERER \
+    GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH \
+    2>/dev/null || true
+
+_LOG=/tmp/singularity-desktop.log
+_SPID=/tmp/singularity-desktop-session.pid
+if [ -f "$_SPID" ]; then
+    _prev=$(cat "$_SPID" 2>/dev/null)
+    if [ -n "$_prev" ] && kill -0 "$_prev" 2>/dev/null; then
+        kill "$_prev" 2>/dev/null || true
+        sleep 0.5
+        kill -9 "$_prev" 2>/dev/null || true
+    fi
+fi
+echo $$ > "$_SPID"
+trap "rm -f $_SPID" EXIT
+
+pkill -TERM -x singularity-desktop 2>/dev/null || true
+pkill -x singularity-polkit-agent 2>/dev/null || true
+sleep 0.3
+nohup "$BIN/singularity-polkit-agent" >> /tmp/singularity-polkit.log 2>&1 &
+systemctl --user restart xdg-desktop-portal 2>/dev/null || true
+
+while true; do
+    "$BIN/singularity-desktop" >> "$_LOG" 2>&1
+    _EC=$?
+    if [ $_EC -eq 0 ]; then
+        echo "[$(date)] singularity-desktop exited 0, waiting 5s..." >> "$_LOG"
+        sleep 5
+    else
+        echo "[$(date)] singularity-desktop exited $_EC, restarting in 2s..." >> "$_LOG"
+        sleep 2
+    fi
+done

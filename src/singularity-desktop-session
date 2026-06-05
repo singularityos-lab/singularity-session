@@ -20,6 +20,13 @@ dbus-update-activation-environment --systemd \
     GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH \
     2>/dev/null || true
 
+systemctl --user set-environment \
+    XDG_CURRENT_DESKTOP="$XDG_CURRENT_DESKTOP" \
+    XDG_DATA_DIRS="$XDG_DATA_DIRS" \
+    GSETTINGS_SCHEMA_DIR="$GSETTINGS_SCHEMA_DIR" 2>/dev/null || true
+
+systemctl --user start singularity-session.target 2>/dev/null || true
+
 _STATE="${XDG_STATE_HOME:-$HOME/.local/state}/singularity"
 mkdir -p "$_STATE"
 _LOG="$_STATE/desktop.log"

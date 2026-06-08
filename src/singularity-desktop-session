@@ -9,6 +9,7 @@ export LD_LIBRARY_PATH="$LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PATH="$BIN:$PATH"
 export GDK_BACKEND=wayland
 export GSK_RENDERER=gl
+export QT_QPA_PLATFORMTHEME=xdgdesktopportal
 export XDG_CURRENT_DESKTOP=Singularity
 export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:$SHARE:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 export GSETTINGS_SCHEMA_DIR="$SHARE/glib-2.0/schemas"
@@ -17,11 +18,13 @@ export GI_TYPELIB_PATH="$LIB/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PAT
 dbus-update-activation-environment --systemd \
     DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP \
     XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS GDK_BACKEND GSK_RENDERER \
+    QT_QPA_PLATFORMTHEME \
     GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH \
     2>/dev/null || true
 
 systemctl --user set-environment \
     XDG_CURRENT_DESKTOP="$XDG_CURRENT_DESKTOP" \
+    QT_QPA_PLATFORMTHEME="$QT_QPA_PLATFORMTHEME" \
     XDG_DATA_DIRS="$XDG_DATA_DIRS" \
     GSETTINGS_SCHEMA_DIR="$GSETTINGS_SCHEMA_DIR" 2>/dev/null || true
 

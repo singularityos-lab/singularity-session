@@ -50,6 +50,15 @@ pkill -TERM -x singularity-desktop 2>/dev/null || true
 pkill -x singularity-polkit-agent 2>/dev/null || true
 sleep 0.3
 nohup "$BIN/singularity-polkit-agent" >> "$_STATE/polkit.log" 2>&1 &
+# Our systemd user units ship under $LIB/systemd/user, a path systemd --user
+# does not scan for non-standard prefixes (e.g. /opt/local). Without linking
+# them, D-Bus activation of the Settings portal backend fails and libadwaita
+# apps never receive the color-scheme/accent, falling back to light.
+for _unit in "$LIB"/systemd/user/*.service; do
+    [ -e "$_unit" ] || continue
+    systemctl --user link "$_unit" 2>/dev/null || true
+done
+systemctl --user daemon-reload 2>/dev/null || true
 # Restart the portal so it picks up the live session environment, but do NOT
 # block on it: xdg-desktop-portal can hang ~25s on its settings-proxy timeout
 # waiting for our portal backend, which would delay the shell launch below.

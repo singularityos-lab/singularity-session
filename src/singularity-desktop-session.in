@@ -130,6 +130,28 @@ nohup "$(singularity_helper singularity-polkit-agent)" >> "$_STATE/polkit.log" 2
 if [ -x "$BIN/ush-broker" ]; then
     nohup "$BIN/ush-broker" >> "$_STATE/ush-broker.log" 2>&1 &
 fi
+# Pull in graphical-session.target so every systemd --user unit declaring
+# WantedBy=graphical-session.target actually launches: our own
+# xdg-desktop-portal-singularity.service among them, plus foot-server.
+# Without this the target sits permanently inactive and those units never
+# start at all, regardless of anything the portal ROUTER does below --
+# confirmed live on O6N 2026-08-27: xdg-desktop-portal correctly resolved
+# and routed Screenshot requests to the singularity backend (portals.conf
+# staging from 2026-08-25 was working fine), but the backend process
+# itself never started because nothing had ever started
+# graphical-session.target on this system.
+#
+# graphical-session.target itself refuses direct manual start
+# (systemd-hardened, RefuseManualStart) -- it must be reached via a unit
+# that BindsTo= it. labwc ships labwc-session.target for exactly this
+# (its own docs/autostart recommends starting it), but that unit is not
+# actually installed by this build, so singularity-session.target
+# (config/systemd-user/, installed by this repo's own meson.build) plays
+# the same role: BindsTo=graphical-session.target,
+# Wants=graphical-session-pre.target, so starting it gets the pre-target
+# sequencing for free too.
+systemctl --user --no-block start singularity-session.target 2>/dev/null || true
+
 # Restart the portal so it picks up the live session environment, but do NOT
 # block on it: xdg-desktop-portal can hang ~25s on its settings-proxy timeout
 # waiting for our portal backend, which would delay the shell launch below.

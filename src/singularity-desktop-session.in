@@ -120,7 +120,19 @@ if [ -f "$_SPID" ]; then
     fi
 fi
 echo $$ > "$_SPID"
-trap "rm -f $_SPID" EXIT
+_session_cleanup() {
+    rm -f "$_SPID"
+    # Nothing else ever stops the target we start below. graphical-session.target
+    # is StopWhenUnneeded=yes, so it only goes away once nothing binds it, and a
+    # user manager that outlives the session -- lingering enabled, or a second
+    # concurrent login -- keeps ours active after the compositor is gone, and
+    # with it every WantedBy=graphical-session.target service beneath it.
+    systemctl --user --no-block stop singularity-session.target 2>/dev/null || true
+}
+# EXIT only, deliberately: bash runs the EXIT trap for an untrapped fatal signal
+# as well, while an explicit TERM trap would be deferred until the supervisor's
+# foreground child returns -- which on the logout path it never does.
+trap _session_cleanup EXIT
 
 pkill -TERM -x singularity-desktop 2>/dev/null || true
 pkill -x singularity-polkit-agent 2>/dev/null || true

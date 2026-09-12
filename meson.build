@@ -18,6 +18,20 @@ configure_file(
   install_mode: 'rwxr-xr-x',
 )
 
+# Ask systemd itself where it expects user units, instead of guessing from
+# our own --prefix. This is what makes the install correct under a
+# non-standard prefix (e.g. /opt/local): systemd's search path doesn't move
+# just because this project's prefix does, so deriving the unit dir from
+# get_option('prefix') silently installs to a directory systemd never reads.
+# Fall back to the old prefix-relative path only if systemd's pkg-config
+# file isn't available to ask (e.g. a minimal cross sysroot).
+systemd_dep = dependency('systemd', required: false)
+if systemd_dep.found()
+  systemd_user_unit_dir = systemd_dep.get_variable(pkgconfig: 'systemduserunitdir')
+else
+  systemd_user_unit_dir = get_option('prefix') / 'lib' / 'systemd' / 'user'
+endif
+
 install_data(
   'src/singularity-labwc-session',
   install_dir: get_option('bindir'),
@@ -54,5 +68,5 @@ test('session-safe-mode', session_test_bash,
 # own xdg-desktop-portal-singularity.service among them) launch at all.
 install_data(
   'config/systemd-user/singularity-session.target',
-  install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user',
+  install_dir: systemd_user_unit_dir,
 )

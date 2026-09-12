@@ -18,13 +18,9 @@ configure_file(
   install_mode: 'rwxr-xr-x',
 )
 
-# Ask systemd itself where it expects user units, instead of guessing from
-# our own --prefix. This is what makes the install correct under a
-# non-standard prefix (e.g. /opt/local): systemd's search path doesn't move
-# just because this project's prefix does, so deriving the unit dir from
-# get_option('prefix') silently installs to a directory systemd never reads.
-# Fall back to the old prefix-relative path only if systemd's pkg-config
-# file isn't available to ask (e.g. a minimal cross sysroot).
+# systemd's user-unit search path does not follow our --prefix, so a
+# prefix-relative install dir lands where systemd never looks. Fall back to
+# one only when systemd.pc isn't available to ask (e.g. a minimal sysroot).
 systemd_dep = dependency('systemd', required: false)
 if systemd_dep.found()
   systemd_user_unit_dir = systemd_dep.get_variable(pkgconfig: 'systemduserunitdir')
@@ -60,12 +56,8 @@ test('session-safe-mode', session_test_bash,
       meson.current_build_dir() / 'singularity-desktop-session',
   })
 
-# BindsTo=graphical-session.target so starting it pulls the target in as a
-# side effect -- graphical-session.target itself is systemd-hardened against
-# direct manual start (RefuseManualStart), by design: it must be reached via
-# a bound unit. singularity-desktop-session starts this unit; that is the
-# only thing that makes every WantedBy=graphical-session.target unit (our
-# own xdg-desktop-portal-singularity.service among them) launch at all.
+# graphical-session.target sets RefuseManualStart, so it can only be reached
+# via a unit that BindsTo= it. This target is that unit.
 install_data(
   'config/systemd-user/singularity-session.target',
   install_dir: systemd_user_unit_dir,

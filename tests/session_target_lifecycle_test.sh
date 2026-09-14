@@ -77,3 +77,35 @@ STOP_LINE=$(grep -Fn -- "stop singularity-session.target" "$SYSTEMCTL_LOG" | hea
     echo "launcher left its pid file behind" >&2
     exit 1
 }
+
+# Scenario 2: a sibling login (same UID, same XDG_RUNTIME_DIR, same systemd
+# --user manager) is still running when this login exits. Simulated by
+# planting a session marker the launcher did not create itself -- it must
+# leave the target running for the sibling rather than stopping it.
+: > "$SYSTEMCTL_LOG"
+SIBLING_MARKER="$XDG_RUNTIME_DIR/singularity-session.d/sibling-fake-pid"
+mkdir -p "$(dirname "$SIBLING_MARKER")"
+: > "$SIBLING_MARKER"
+
+set +e
+bash -c 'trap "" TERM; bash "$1" & child=$!; wait "$child"' _ "$LAUNCHER"
+set -e
+
+grep -Fq -- "--user --no-block start singularity-session.target" "$SYSTEMCTL_LOG" || {
+    echo "launcher never started singularity-session.target on the second run" >&2
+    cat "$SYSTEMCTL_LOG" >&2
+    exit 1
+}
+if grep -Fq -- "--user --no-block stop singularity-session.target" "$SYSTEMCTL_LOG"; then
+    echo "launcher stopped singularity-session.target while a sibling login's marker was still present" >&2
+    cat "$SYSTEMCTL_LOG" >&2
+    exit 1
+fi
+[ -e "$SIBLING_MARKER" ] || {
+    echo "launcher removed a marker it did not create" >&2
+    exit 1
+}
+[ ! -e "$XDG_RUNTIME_DIR/singularity-desktop-session.pid" ] || {
+    echo "launcher left its pid file behind on the second run" >&2
+    exit 1
+}

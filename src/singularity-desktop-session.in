@@ -120,13 +120,22 @@ if [ -f "$_SPID" ]; then
     fi
 fi
 echo $$ > "$_SPID"
+# One systemd --user manager is shared by every login of the same UID, so a
+# second concurrent login (a second seat, or console + SSH) runs its own copy
+# of this launcher under the SAME manager and the SAME singularity-session.target.
+# A marker per running instance turns the unconditional stop below into a
+# reference count: only the last instance to exit actually stops the target.
+_SESSION_MARKERS="${XDG_RUNTIME_DIR:-/tmp}/singularity-session.d"
+mkdir -p "$_SESSION_MARKERS"
+_SESSION_MARKER="$_SESSION_MARKERS/$$"
+: > "$_SESSION_MARKER"
 _session_cleanup() {
-    rm -f "$_SPID"
-    # Nothing else ever stops the target we start below. graphical-session.target
-    # is StopWhenUnneeded=yes, so it only goes away once nothing binds it, and a
-    # user manager that outlives the session -- lingering enabled, or a second
-    # concurrent login -- keeps ours active after the compositor is gone, and
-    # with it every WantedBy=graphical-session.target service beneath it.
+    rm -f "$_SPID" "$_SESSION_MARKER"
+    # graphical-session.target is StopWhenUnneeded=yes, so it only goes away
+    # once nothing binds it -- stopping singularity-session.target while a
+    # sibling login's marker is still present would tear down that login's
+    # portal/audio-autoswitch/etc out from under it.
+    [ -z "$(ls -A "$_SESSION_MARKERS" 2>/dev/null)" ] || return 0
     systemctl --user --no-block stop singularity-session.target 2>/dev/null || true
 }
 # EXIT only, deliberately: bash runs the EXIT trap for an untrapped fatal signal

@@ -120,7 +120,28 @@ if [ -f "$_SPID" ]; then
     fi
 fi
 echo $$ > "$_SPID"
-trap "rm -f $_SPID" EXIT
+# One systemd --user manager is shared by every login of the same UID, so a
+# second concurrent login (a second seat, or console + SSH) runs its own copy
+# of this launcher under the SAME manager and the SAME singularity-session.target.
+# A marker per running instance turns the unconditional stop below into a
+# reference count: only the last instance to exit actually stops the target.
+_SESSION_MARKERS="${XDG_RUNTIME_DIR:-/tmp}/singularity-session.d"
+mkdir -p "$_SESSION_MARKERS"
+_SESSION_MARKER="$_SESSION_MARKERS/$$"
+: > "$_SESSION_MARKER"
+_session_cleanup() {
+    rm -f "$_SPID" "$_SESSION_MARKER"
+    # graphical-session.target is StopWhenUnneeded=yes, so it only goes away
+    # once nothing binds it -- stopping singularity-session.target while a
+    # sibling login's marker is still present would tear down that login's
+    # portal/audio-autoswitch/etc out from under it.
+    [ -z "$(ls -A "$_SESSION_MARKERS" 2>/dev/null)" ] || return 0
+    systemctl --user --no-block stop singularity-session.target 2>/dev/null || true
+}
+# EXIT only, deliberately: bash runs the EXIT trap for an untrapped fatal signal
+# as well, while an explicit TERM trap would be deferred until the supervisor's
+# foreground child returns -- which on the logout path it never does.
+trap _session_cleanup EXIT
 
 pkill -TERM -x singularity-desktop 2>/dev/null || true
 pkill -x singularity-polkit-agent 2>/dev/null || true
@@ -130,6 +151,12 @@ nohup "$(singularity_helper singularity-polkit-agent)" >> "$_STATE/polkit.log" 2
 if [ -x "$BIN/ush-broker" ]; then
     nohup "$BIN/ush-broker" >> "$_STATE/ush-broker.log" 2>&1 &
 fi
+# graphical-session.target sets RefuseManualStart and can only be reached via
+# a unit that BindsTo= it. Without this start, the target stays inactive and
+# every WantedBy=graphical-session.target unit -- our own
+# xdg-desktop-portal-singularity.service, foot-server -- silently never runs.
+systemctl --user --no-block start singularity-session.target 2>/dev/null || true
+
 # Restart the portal so it picks up the live session environment, but do NOT
 # block on it: xdg-desktop-portal can hang ~25s on its settings-proxy timeout
 # waiting for our portal backend, which would delay the shell launch below.

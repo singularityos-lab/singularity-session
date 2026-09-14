@@ -41,7 +41,10 @@ export SINGULARITY_SESSION_BUILD_ID="session-target-test-build"
 export SINGULARITY_DESKTOP_BINARY="$0"
 export SINGULARITY_TEST_FAKE_DESKTOP=1
 
-LAUNCHER="$(dirname "$0")/../src/singularity-desktop-session"
+# The launcher under test is generated, so point the test at the configured
+# copy in the build dir (SINGULARITY_TEST_DESKTOP_SESSION, set in meson.build).
+# Outside meson, fall back to the raw .in template.
+LAUNCHER="${SINGULARITY_TEST_DESKTOP_SESSION:-$(dirname "$0")/../src/singularity-desktop-session.in}"
 # The supervisor kills $PPID once it gives up, so run the launcher under a
 # wrapper that absorbs that signal instead of the test process itself.
 set +e

@@ -56,7 +56,11 @@ test('session-safe-mode', session_test_bash,
       meson.current_build_dir() / 'singularity-desktop-session',
   })
 test('session-target-lifecycle', session_test_bash,
-  args: files('tests/session_target_lifecycle_test.sh'))
+  args: files('tests/session_target_lifecycle_test.sh'),
+  env: {
+    'SINGULARITY_TEST_DESKTOP_SESSION':
+      meson.current_build_dir() / 'singularity-desktop-session',
+  })
 
 # graphical-session.target sets RefuseManualStart, so it can only be reached
 # via a unit that BindsTo= it. This target is that unit.

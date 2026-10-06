@@ -32,6 +32,7 @@ export GTK_USE_PORTAL=1
 export QT_QPA_PLATFORMTHEME=xdgdesktopportal
 export XDG_CURRENT_DESKTOP=Singularity
 export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:$SHARE:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export XDG_CONFIG_DIRS="$PREFIX/etc/xdg:${XDG_CONFIG_DIRS:-/etc/xdg}"
 export GSETTINGS_SCHEMA_DIR="$SHARE/glib-2.0/schemas"
 export GI_TYPELIB_PATH="$LIB/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
 if command -v gsettings >/dev/null 2>&1 &&
@@ -44,6 +45,26 @@ fi
 _STATE="${XDG_STATE_HOME:-$HOME/.local/state}/singularity"
 mkdir -p "$_STATE"
 _LOG="$_STATE/desktop.log"
+_HELPERS="${XDG_RUNTIME_DIR:-/tmp}/singularity-session-helpers"
+
+record_helper() {
+    [ "${SINGULARITY_SESSION_SUPERVISOR_ONLY:-0}" = "1" ] && return 0
+    mkdir -p "$_HELPERS" 2>/dev/null || return 0
+    printf '%s %s\n' "$1" "$(readlink -f "$2" 2>/dev/null || printf '%s' "$2")" >> "$_HELPERS/$$"
+}
+
+stop_helpers_of() {
+    _file="$_HELPERS/$1"
+    [ -f "$_file" ] || return 0
+    while read -r _pid _exe; do
+        case "$_pid" in ''|*[!0-9]*) continue ;; esac
+        [ "$_pid" -gt 1 ] && [ "$_pid" -ne $$ ] && [ -O "/proc/$_pid" ] || continue
+        _link=$(readlink "/proc/$_pid/exe" 2>/dev/null) || continue
+        [ "${_link% (deleted)}" = "$_exe" ] || continue
+        kill -TERM "$_pid" 2>/dev/null || true
+    done < "$_file"
+    rm -f "$_file"
+}
 
 run_desktop_supervisor() {
     _crashes=0
@@ -52,7 +73,10 @@ run_desktop_supervisor() {
     _crash_limit=3
     while true; do
         _t0=$SECONDS
-        "$_DESKTOP" >> "$_LOG" 2>&1
+        "$_DESKTOP" >> "$_LOG" 2>&1 &
+        _shell_pid=$!
+        record_helper "$_shell_pid" "$_DESKTOP"
+        wait "$_shell_pid"
         _EC=$?
         _dt=$((SECONDS - _t0))
         if [ $_EC -eq 0 ]; then
@@ -106,13 +130,15 @@ dbus-update-activation-environment \
     DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP \
     XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS GDK_BACKEND GSK_RENDERER \
     GTK_USE_PORTAL QT_QPA_PLATFORM QT_QPA_PLATFORMTHEME \
-    GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH \
+    GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS XDG_CONFIG_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH \
     2>/dev/null || true
 
 [ -f "$_LOG" ] && mv -f "$_LOG" "$_LOG.1"
 _SPID="${XDG_RUNTIME_DIR:-/tmp}/singularity-desktop-session.pid"
 if [ -f "$_SPID" ]; then
     _prev=$(cat "$_SPID" 2>/dev/null)
+    case "$_prev" in ''|*[!0-9]*) _prev= ;; esac
+    [ -n "$_prev" ] && stop_helpers_of "$_prev"
     if [ -n "$_prev" ] && kill -0 "$_prev" 2>/dev/null; then
         kill "$_prev" 2>/dev/null || true
         sleep 0.5
@@ -131,6 +157,7 @@ _SESSION_MARKER="$_SESSION_MARKERS/$$"
 : > "$_SESSION_MARKER"
 _session_cleanup() {
     rm -f "$_SPID" "$_SESSION_MARKER"
+    stop_helpers_of "$$"
     # graphical-session.target is StopWhenUnneeded=yes, so it only goes away
     # once nothing binds it -- stopping singularity-session.target while a
     # sibling login's marker is still present would tear down that login's
@@ -143,13 +170,13 @@ _session_cleanup() {
 # foreground child returns -- which on the logout path it never does.
 trap _session_cleanup EXIT
 
-pkill -TERM -x singularity-desktop 2>/dev/null || true
-pkill -x singularity-polkit-agent 2>/dev/null || true
-pkill -TERM -x ush-broker 2>/dev/null || true
 sleep 0.3
-nohup "$(singularity_helper singularity-polkit-agent)" >> "$_STATE/polkit.log" 2>&1 &
+_polkit_agent="$(singularity_helper singularity-polkit-agent)"
+nohup "$_polkit_agent" >> "$_STATE/polkit.log" 2>&1 &
+record_helper "$!" "$_polkit_agent"
 if [ -x "$BIN/ush-broker" ]; then
     nohup "$BIN/ush-broker" >> "$_STATE/ush-broker.log" 2>&1 &
+    record_helper "$!" "$BIN/ush-broker"
 fi
 # graphical-session.target sets RefuseManualStart and can only be reached via
 # a unit that BindsTo= it. Without this start, the target stays inactive and

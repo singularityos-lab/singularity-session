@@ -22,6 +22,13 @@ so they work from `/opt/local`, `/usr/local`, or `/usr` without modification.
 time instead, since a packager can point `-Dlibexecdir=` somewhere that isn't
 simply `<prefix>/libexec`.
 
+The desktop session records the processes it starts (shell, polkit agent,
+`ush-broker`) in `$XDG_RUNTIME_DIR/singularity-session-helpers/<launcher pid>`.
+A new launcher stops only the ones recorded by the launcher it replaces, after
+checking each pid still runs the recorded executable, and a launcher stops its
+own when it exits. Nothing is stopped by process name, so other sessions of
+the same user are left alone.
+
 ## Build & Install
 
 ```sh

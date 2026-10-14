@@ -78,18 +78,56 @@ stop_helpers_of() {
     rm -f "$_file"
 }
 
+_RUN_DIR="$_STATE/runs"
+_RUN_KEEP=8
+mkdir -p "$_RUN_DIR" 2>/dev/null || true
+
+_run_log_path() {
+    printf '%s/desktop-%s-%s-%s.log\n' "$_RUN_DIR" "$(date -u +%Y%m%dT%H%M%SZ)" "$$" "$1"
+}
+
+_prune_run_logs() {
+    ls -1t "$_RUN_DIR"/desktop-*.log 2>/dev/null |
+        tail -n +$((_RUN_KEEP + 1)) | while IFS= read -r _old; do
+            [ -n "$_old" ] && rm -f -- "$_old"
+        done
+    return 0
+}
+
+_exit_status_text() {
+    if [ "$1" -gt 128 ] 2>/dev/null; then
+        _sig=$(( $1 - 128 ))
+        _signame=$(kill -l "$_sig" 2>/dev/null || true)
+        if [ -n "$_signame" ]; then
+            printf '%s (signal %s: %s)' "$1" "$_sig" "$_signame"
+        else
+            printf '%s (signal %s)' "$1" "$_sig"
+        fi
+    else
+        printf '%s' "$1"
+    fi
+}
+
 run_desktop_supervisor() {
     _crashes=0
     _crash_window_started=0
     _crash_window_seconds=300
     _crash_limit=3
+    _run_seq=0
     while true; do
         _t0=$SECONDS
-        "$_DESKTOP" >> "$_LOG" 2>&1 &
+        _run_seq=$((_run_seq + 1))
+        _RUNLOG=$(_run_log_path "$_run_seq")
+        (
+            ulimit -c unlimited 2>/dev/null || true
+            exec "$_DESKTOP"
+        ) >> "$_RUNLOG" 2>&1 &
         _shell_pid=$!
         record_helper "$_shell_pid" "$_DESKTOP"
         wait "$_shell_pid"
         _EC=$?
+        echo "[$(date)] singularity-desktop run output: $_RUNLOG" >> "$_LOG"
+        _prune_run_logs
         _dt=$((SECONDS - _t0))
         if [ $_EC -eq 0 ]; then
             echo "[$(date)] singularity-desktop exited 0, restarting..." >> "$_LOG"
@@ -117,7 +155,9 @@ run_desktop_supervisor() {
                 kill "$PPID" 2>/dev/null || true
                 return 1
             fi
-            echo "[$(date)] singularity-desktop exited $_EC after ${_dt}s (crash $_crashes/$_crash_limit), restarting in 2s..." >> "$_LOG"
+            _STATUS=$(_exit_status_text "$_EC")
+            printf '[%s] exited %s after %ss\n' "$(date)" "$_STATUS" "$_dt" >> "$_RUNLOG"
+            echo "[$(date)] singularity-desktop exited $_STATUS after ${_dt}s (crash $_crashes/$_crash_limit), restarting in 2s..." >> "$_LOG"
             sleep 2
         fi
     done

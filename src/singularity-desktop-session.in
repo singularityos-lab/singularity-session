@@ -118,10 +118,7 @@ run_desktop_supervisor() {
         _t0=$SECONDS
         _run_seq=$((_run_seq + 1))
         _RUNLOG=$(_run_log_path "$_run_seq")
-        (
-            ulimit -c unlimited 2>/dev/null || true
-            exec "$_DESKTOP"
-        ) >> "$_RUNLOG" 2>&1 &
+        "$_DESKTOP" >> "$_RUNLOG" 2>&1 &
         _shell_pid=$!
         record_helper "$_shell_pid" "$_DESKTOP"
         wait "$_shell_pid"
